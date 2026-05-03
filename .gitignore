@@ -1,0 +1,10 @@
+# Ignorar paquetes de despliegue
+*.zip
+
+# Ignorar caché de Python
+__pycache__/
+*.py[cod]
+
+# Ignorar archivos del sistema operativo
+.DS_Store
+Thumbs.db
