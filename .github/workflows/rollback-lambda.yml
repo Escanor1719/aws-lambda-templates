@@ -1,0 +1,45 @@
+name: Rollback Lambda Alias
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente a restaurar (dev, staging, prod)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      target_version:
+        description: 'Número de versión exacta a la que deseas volver (ej. 42)'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Execute Rollback (Update Alias)
+        env:
+          FUNCTION_NAME: mi-lambda-funcion
+          ALIAS: ${{ inputs.environment }}
+          VERSION: ${{ inputs.target_version }}
+        run: |
+          echo "Iniciando rollback del alias '$ALIAS' a la versión '$VERSION'..."
+          
+          aws lambda update-alias \
+            --function-name $FUNCTION_NAME \
+            --name $ALIAS \
+            --function-version $VERSION
+            
+          echo "Rollback completado exitosamente."
