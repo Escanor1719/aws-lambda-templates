@@ -1,0 +1,79 @@
+name: Deploy Lambda by Environment
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Mapeo dinámico del entorno de GitHub basado en la rama
+    environment: 
+      name: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node/Python/Go (Ajusta según tu lenguaje)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies & Zip Code
+        run: |
+          npm install
+          zip -r function.zip .
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1 # Ajusta a tu región
+
+      - name: Define Environment Variables for AWS CLI
+        # Preparamos las variables como un string JSON para AWS CLI
+        run: |
+          echo "ENV_VARS=Variables={REDIS_HOST=${{ vars.REDIS_HOST }},DB_HOST=${{ vars.DB_HOST }}}" >> $GITHUB_ENV
+
+      - name: Deploy to AWS Lambda
+        env:
+          FUNCTION_NAME: mi-lambda-funcion
+          # Asignamos el alias correcto según el entorno
+          ALIAS: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+        run: |
+          # 1. Actualizar el código
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --zip-file fileb://function.zip
+            
+          # Esperar a que la actualización del código termine (Evita condiciones de carrera)
+          aws lambda wait function-updated-v2 --function-name $FUNCTION_NAME
+
+          # 2. Actualizar las variables de entorno para esta versión
+          aws lambda update-function-configuration \
+            --function-name $FUNCTION_NAME \
+            --environment "$ENV_VARS"
+            
+          aws lambda wait function-updated-v2 --function-name $FUNCTION_NAME
+
+          # 3. Publicar una nueva versión inmutable
+          VERSION=$(aws lambda publish-version \
+            --function-name $FUNCTION_NAME \
+            --query 'Version' --output text)
+            
+          echo "Publicada la versión: $VERSION"
+
+          # 4. Actualizar el Alias para que apunte a la nueva versión
+          aws lambda update-alias \
+            --function-name $FUNCTION_NAME \
+            --name $ALIAS \
+            --function-version $VERSION \
+            || aws lambda create-alias \
+            --function-name $FUNCTION_NAME \
+            --name $ALIAS \
+            --function-version $VERSION
